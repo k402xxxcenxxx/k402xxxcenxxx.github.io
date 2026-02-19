@@ -157,6 +157,45 @@
     .rules-box.show {
       display: block;
     }
+
+    .inline-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .btn-ghost {
+      padding: 4px 8px;
+      font-size: 0.82rem;
+      border-color: #dbeafe;
+      color: #1e40af;
+      background: #eff6ff;
+    }
+
+    .transfer-editor {
+      margin-top: 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      background: #fafcff;
+    }
+
+    .transfer-editor h3 {
+      margin-bottom: 8px;
+      font-size: 1rem;
+    }
+
+    .transfer-item {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .transfer-item button {
+      justify-self: start;
+    }
   </style>
 </head>
 <body>
@@ -216,10 +255,22 @@
             <th>台數</th>
             <th>金額</th>
             <th>備註</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody id="roundsBody"></tbody>
       </table>
+
+      <div id="transferEditor" class="transfer-editor" style="display:none;">
+        <h3 id="editorTitle">編輯轉帳</h3>
+        <p class="small">可調整任意給錢金額、修改付款/收款對象，或刪除某筆轉帳。</p>
+        <div id="transferRows"></div>
+        <div class="row" style="margin-top: 10px;">
+          <button id="addTransferRowBtn" type="button">新增一筆轉帳</button>
+          <button id="saveTransferEditBtn" class="btn-primary" type="button">儲存本局修改</button>
+          <button id="cancelTransferEditBtn" type="button">取消</button>
+        </div>
+      </div>
     </section>
 
     <div class="grid" style="margin-top:16px;">
@@ -270,8 +321,16 @@
       totalsBody: document.getElementById("totalsBody"),
       transactions: document.getElementById("transactions"),
       toggleRulesBtn: document.getElementById("toggleRulesBtn"),
-      rulesBox: document.getElementById("rulesBox")
+      rulesBox: document.getElementById("rulesBox"),
+      transferEditor: document.getElementById("transferEditor"),
+      editorTitle: document.getElementById("editorTitle"),
+      transferRows: document.getElementById("transferRows"),
+      addTransferRowBtn: document.getElementById("addTransferRowBtn"),
+      saveTransferEditBtn: document.getElementById("saveTransferEditBtn"),
+      cancelTransferEditBtn: document.getElementById("cancelTransferEditBtn")
     };
+
+    let editingRoundIndex = null;
 
     function loadState() {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -400,7 +459,7 @@
 
     function renderRounds() {
       if (state.rounds.length === 0) {
-        el.roundsBody.innerHTML = `<tr><td colspan="7" class="small">目前還沒有紀錄。</td></tr>`;
+        el.roundsBody.innerHTML = `<tr><td colspan="8" class="small">目前還沒有紀錄。</td></tr>`;
         return;
       }
       el.roundsBody.innerHTML = state.rounds
@@ -432,10 +491,113 @@
               <td>${round.taiCount}</td>
               <td>${amountText || "-"}</td>
               <td>${noteText || "-"}</td>
+              <td>
+                <div class="inline-actions">
+                  <button class="btn-ghost" type="button" onclick="startEditRound(${idx})">編輯金額</button>
+                  <button class="btn-danger" type="button" onclick="deleteRound(${idx})">刪除本局</button>
+                </div>
+              </td>
             </tr>
           `;
         })
         .join("");
+    }
+
+    function getTransferEditorRow(playerOptions, tx = {}) {
+      const from = Number.isInteger(tx.from) ? tx.from : 0;
+      const to = Number.isInteger(tx.to) ? tx.to : 1;
+      const amount = Math.max(0, Number(tx.amount) || 0);
+      return `
+        <div class="transfer-item" data-transfer-row>
+          <select data-field="from">${playerOptions(from)}</select>
+          <span>→</span>
+          <select data-field="to">${playerOptions(to)}</select>
+          <input data-field="amount" type="number" min="0" step="1" value="${amount}">
+          <button class="btn-danger" type="button" onclick="removeTransferRow(this)">刪除此筆</button>
+        </div>
+      `;
+    }
+
+    function buildPlayerOptionBuilder() {
+      return (selected) => state.config.players
+        .map((name, index) => `<option value="${index}" ${index === selected ? "selected" : ""}>${name}</option>`)
+        .join("");
+    }
+
+    function startEditRound(index) {
+      const round = state.rounds[index];
+      if (!round) return;
+      editingRoundIndex = index;
+      el.editorTitle.textContent = `編輯第 ${index + 1} 局轉帳`;
+      const playerOptions = buildPlayerOptionBuilder();
+      const transferList = Array.isArray(round.transfers) ? round.transfers : [];
+      el.transferRows.innerHTML = transferList
+        .map((tx) => getTransferEditorRow(playerOptions, tx))
+        .join("");
+      if (transferList.length === 0) {
+        el.transferRows.innerHTML = getTransferEditorRow(playerOptions);
+      }
+      el.transferEditor.style.display = "block";
+    }
+
+    function removeTransferRow(button) {
+      const row = button.closest("[data-transfer-row]");
+      row?.remove();
+    }
+
+    function addTransferRow() {
+      const playerOptions = buildPlayerOptionBuilder();
+      el.transferRows.insertAdjacentHTML("beforeend", getTransferEditorRow(playerOptions));
+    }
+
+    function cancelEditRound() {
+      editingRoundIndex = null;
+      el.transferEditor.style.display = "none";
+      el.transferRows.innerHTML = "";
+    }
+
+    function saveRoundEdit() {
+      if (editingRoundIndex === null) return;
+      const roundNumber = editingRoundIndex + 1;
+      const round = state.rounds[editingRoundIndex];
+      if (!round) return;
+
+      const rows = [...el.transferRows.querySelectorAll("[data-transfer-row]")];
+      const transfers = rows.map((row) => {
+        const from = Number(row.querySelector('[data-field="from"]').value);
+        const to = Number(row.querySelector('[data-field="to"]').value);
+        const amount = Math.max(0, Number(row.querySelector('[data-field="amount"]').value) || 0);
+        return { from, to, amount, taiCount: round.taiCount, dealerBonusTai: 0 };
+      }).filter((tx) => tx.from !== tx.to && tx.amount > 0);
+
+      round.transfers = transfers;
+      persist();
+      renderRounds();
+      renderTotalsAndSettlement();
+      cancelEditRound();
+      el.statusText.textContent = `第 ${roundNumber} 局已更新。`;
+    }
+
+    function recomputeDealers() {
+      let currentDealer = 0;
+      state.rounds = state.rounds.map((round) => {
+        const normalized = { ...round, dealerIndex: currentDealer };
+        if (normalized.winner !== currentDealer) {
+          currentDealer = (currentDealer + 1) % 4;
+        }
+        return normalized;
+      });
+      state.dealerIndex = currentDealer;
+    }
+
+    function deleteRound(index) {
+      if (index < 0 || index >= state.rounds.length) return;
+      state.rounds.splice(index, 1);
+      recomputeDealers();
+      persist();
+      renderAll();
+      cancelEditRound();
+      el.statusText.textContent = `已刪除第 ${index + 1} 局。`;
     }
 
     function toggleLoserInput() {
@@ -556,11 +718,19 @@
     el.resetRoundBtn.addEventListener("click", resetRounds);
     el.clearAllBtn.addEventListener("click", clearAll);
     el.toggleRulesBtn.addEventListener("click", toggleRules);
+    el.addTransferRowBtn.addEventListener("click", addTransferRow);
+    el.saveTransferEditBtn.addEventListener("click", saveRoundEdit);
+    el.cancelTransferEditBtn.addEventListener("click", cancelEditRound);
 
     loadState();
+    recomputeDealers();
     renderAll();
     toggleLoserInput();
     el.statusText.textContent = "已載入本機儲存資料。";
+
+    window.startEditRound = startEditRound;
+    window.deleteRound = deleteRound;
+    window.removeTransferRow = removeTransferRow;
   </script>
 </body>
 </html>
