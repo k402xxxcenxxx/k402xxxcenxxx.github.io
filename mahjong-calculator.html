@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>麻將計算器</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --primary: #0b5fff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --positive: #166534;
+      --negative: #b91c1c;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans TC", "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+
+    h1, h2, h3 { margin: 0 0 12px; }
+    p { margin: 0 0 12px; color: var(--muted); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    label {
+      font-size: 0.92rem;
+      min-width: 92px;
+      color: var(--muted);
+    }
+
+    input, select, button {
+      font: inherit;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    input, select {
+      flex: 1;
+      min-width: 140px;
+    }
+
+    button {
+      cursor: pointer;
+      background: white;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+
+    .btn-danger {
+      color: #991b1b;
+      border-color: #fecaca;
+      background: #fff1f2;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 0.94rem;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 8px 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .result-positive { color: var(--positive); font-weight: 600; }
+    .result-negative { color: var(--negative); font-weight: 600; }
+    .dealer-chip {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #e0ebff;
+      color: #1d4ed8;
+      font-size: 0.8rem;
+      margin-left: 6px;
+    }
+
+    .small {
+      font-size: 0.86rem;
+      color: var(--muted);
+    }
+
+    .transaction-list {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .transaction-list li { margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>麻將計算器</h1>
+    <p>設定一台金額、底分金額與玩家名稱，快速記錄每一局並自動輪調莊家，最後可一鍵結算誰該給誰多少錢。</p>
+
+    <div class="grid">
+      <section class="card">
+        <h2>基本設定</h2>
+        <div class="row"><label for="baseAmount">底分金額</label><input id="baseAmount" type="number" min="0" step="1" value="10"></div>
+        <div class="row"><label for="taiAmount">一台金額</label><input id="taiAmount" type="number" min="0" step="1" value="10"></div>
+        <div class="row"><label for="player1">玩家 1</label><input id="player1" type="text" value="東"></div>
+        <div class="row"><label for="player2">玩家 2</label><input id="player2" type="text" value="南"></div>
+        <div class="row"><label for="player3">玩家 3</label><input id="player3" type="text" value="西"></div>
+        <div class="row"><label for="player4">玩家 4</label><input id="player4" type="text" value="北"></div>
+        <div class="row">
+          <button class="btn-primary" id="saveConfigBtn">儲存設定</button>
+          <button id="resetRoundBtn">重新一輪（清空對局）</button>
+          <button class="btn-danger" id="clearAllBtn">清空所有資料</button>
+        </div>
+        <p class="small" id="statusText">尚未儲存設定。</p>
+      </section>
+
+      <section class="card">
+        <h2>新增一局</h2>
+        <div class="row"><label for="winnerSelect">胡牌者</label><select id="winnerSelect"></select></div>
+        <div class="row"><label for="loserSelect">放槍者</label><select id="loserSelect"></select></div>
+        <div class="row"><label for="taiCount">台數</label><input id="taiCount" type="number" min="0" step="1" value="1"></div>
+        <div class="row"><label for="roundNote">備註</label><input id="roundNote" type="text" placeholder="例如：自摸、搶槓、連莊..."></div>
+        <div class="row">
+          <button class="btn-primary" id="addRoundBtn">記錄本局</button>
+        </div>
+        <p class="small" id="dealerText"></p>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:16px;">
+      <h2>每局紀錄</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>莊家</th>
+            <th>胡牌者</th>
+            <th>放槍者</th>
+            <th>台數</th>
+            <th>金額</th>
+            <th>備註</th>
+          </tr>
+        </thead>
+        <tbody id="roundsBody"></tbody>
+      </table>
+    </section>
+
+    <div class="grid" style="margin-top:16px;">
+      <section class="card">
+        <h2>總分（正負）</h2>
+        <table>
+          <thead><tr><th>玩家</th><th>金額</th></tr></thead>
+          <tbody id="totalsBody"></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>最終結算（誰給誰）</h2>
+        <ul id="transactions" class="transaction-list"></ul>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "mahjong-calculator-state-v1";
+
+    const state = {
+      config: {
+        baseAmount: 10,
+        taiAmount: 10,
+        players: ["東", "南", "西", "北"]
+      },
+      rounds: [],
+      dealerIndex: 0
+    };
+
+    const el = {
+      baseAmount: document.getElementById("baseAmount"),
+      taiAmount: document.getElementById("taiAmount"),
+      playerInputs: [1, 2, 3, 4].map((n) => document.getElementById(`player${n}`)),
+      saveConfigBtn: document.getElementById("saveConfigBtn"),
+      resetRoundBtn: document.getElementById("resetRoundBtn"),
+      clearAllBtn: document.getElementById("clearAllBtn"),
+      statusText: document.getElementById("statusText"),
+      winnerSelect: document.getElementById("winnerSelect"),
+      loserSelect: document.getElementById("loserSelect"),
+      taiCount: document.getElementById("taiCount"),
+      roundNote: document.getElementById("roundNote"),
+      addRoundBtn: document.getElementById("addRoundBtn"),
+      dealerText: document.getElementById("dealerText"),
+      roundsBody: document.getElementById("roundsBody"),
+      totalsBody: document.getElementById("totalsBody"),
+      transactions: document.getElementById("transactions")
+    };
+
+    function loadState() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      try {
+        const saved = JSON.parse(raw);
+        if (saved && saved.config && Array.isArray(saved.config.players) && saved.config.players.length === 4) {
+          state.config.baseAmount = Number(saved.config.baseAmount) || 0;
+          state.config.taiAmount = Number(saved.config.taiAmount) || 0;
+          state.config.players = saved.config.players.map((name, index) => String(name || `玩家${index + 1}`));
+          state.rounds = Array.isArray(saved.rounds) ? saved.rounds : [];
+          state.dealerIndex = Number.isInteger(saved.dealerIndex) ? saved.dealerIndex % 4 : 0;
+        }
+      } catch (error) {
+        console.warn("讀取資料失敗", error);
+      }
+    }
+
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function refreshConfigForm() {
+      el.baseAmount.value = state.config.baseAmount;
+      el.taiAmount.value = state.config.taiAmount;
+      state.config.players.forEach((name, index) => {
+        el.playerInputs[index].value = name;
+      });
+    }
+
+    function rebuildPlayerOptions() {
+      const options = state.config.players
+        .map((name, index) => `<option value="${index}">${name}</option>`)
+        .join("");
+      el.winnerSelect.innerHTML = options;
+      el.loserSelect.innerHTML = options;
+      if (el.loserSelect.options.length > 1) {
+        el.loserSelect.selectedIndex = 1;
+      }
+    }
+
+    function calcRoundAmount(taiCount) {
+      return state.config.baseAmount + state.config.taiAmount * taiCount;
+    }
+
+    function getTotals() {
+      const totals = state.config.players.map(() => 0);
+      for (const round of state.rounds) {
+        totals[round.winner] += round.amount;
+        totals[round.loser] -= round.amount;
+      }
+      return totals;
+    }
+
+    function getTransactions(totals) {
+      const creditors = [];
+      const debtors = [];
+      totals.forEach((amount, index) => {
+        if (amount > 0) creditors.push({ index, amount });
+        if (amount < 0) debtors.push({ index, amount: -amount });
+      });
+
+      const transactions = [];
+      let i = 0;
+      let j = 0;
+      while (i < debtors.length && j < creditors.length) {
+        const pay = Math.min(debtors[i].amount, creditors[j].amount);
+        transactions.push({
+          from: debtors[i].index,
+          to: creditors[j].index,
+          amount: pay
+        });
+        debtors[i].amount -= pay;
+        creditors[j].amount -= pay;
+        if (debtors[i].amount === 0) i += 1;
+        if (creditors[j].amount === 0) j += 1;
+      }
+      return transactions;
+    }
+
+    function renderDealer() {
+      const dealerName = state.config.players[state.dealerIndex];
+      el.dealerText.innerHTML = `本局莊家：<strong>${dealerName}</strong> <span class="dealer-chip">第 ${state.rounds.length + 1} 局</span>`;
+    }
+
+    function renderRounds() {
+      if (state.rounds.length === 0) {
+        el.roundsBody.innerHTML = `<tr><td colspan="7" class="small">目前還沒有紀錄。</td></tr>`;
+        return;
+      }
+      el.roundsBody.innerHTML = state.rounds
+        .map((round, idx) => {
+          const dealer = state.config.players[round.dealerIndex] || "-";
+          const winner = state.config.players[round.winner] || "-";
+          const loser = state.config.players[round.loser] || "-";
+          return `
+            <tr>
+              <td>${idx + 1}</td>
+              <td>${dealer}</td>
+              <td>${winner}</td>
+              <td>${loser}</td>
+              <td>${round.taiCount}</td>
+              <td>${round.amount}</td>
+              <td>${round.note || "-"}</td>
+            </tr>
+          `;
+        })
+        .join("");
+    }
+
+    function renderTotalsAndSettlement() {
+      const totals = getTotals();
+      el.totalsBody.innerHTML = totals
+        .map((amount, index) => {
+          const cls = amount >= 0 ? "result-positive" : "result-negative";
+          const sign = amount > 0 ? "+" : "";
+          return `<tr><td>${state.config.players[index]}</td><td class="${cls}">${sign}${amount}</td></tr>`;
+        })
+        .join("");
+
+      const txs = getTransactions(totals);
+      if (txs.length === 0) {
+        el.transactions.innerHTML = "<li>目前收支平衡，無需結算。</li>";
+        return;
+      }
+      el.transactions.innerHTML = txs
+        .map((tx) => `<li><strong>${state.config.players[tx.from]}</strong> 需給 <strong>${state.config.players[tx.to]}</strong>：${tx.amount}</li>`)
+        .join("");
+    }
+
+    function renderAll() {
+      refreshConfigForm();
+      rebuildPlayerOptions();
+      renderDealer();
+      renderRounds();
+      renderTotalsAndSettlement();
+    }
+
+    function saveConfig() {
+      const players = el.playerInputs.map((input, index) => input.value.trim() || `玩家${index + 1}`);
+      const unique = new Set(players);
+      if (unique.size < 4) {
+        el.statusText.textContent = "玩家名稱不可重複，請重新設定。";
+        return;
+      }
+
+      state.config.baseAmount = Math.max(0, Number(el.baseAmount.value) || 0);
+      state.config.taiAmount = Math.max(0, Number(el.taiAmount.value) || 0);
+      state.config.players = players;
+      persist();
+      renderAll();
+      el.statusText.textContent = "設定已儲存。";
+    }
+
+    function addRound() {
+      const winner = Number(el.winnerSelect.value);
+      const loser = Number(el.loserSelect.value);
+      const taiCount = Math.max(0, Number(el.taiCount.value) || 0);
+      const note = el.roundNote.value.trim();
+
+      if (winner === loser) {
+        el.statusText.textContent = "胡牌者與放槍者不能同一位。";
+        return;
+      }
+
+      const amount = calcRoundAmount(taiCount);
+      state.rounds.push({
+        dealerIndex: state.dealerIndex,
+        winner,
+        loser,
+        taiCount,
+        amount,
+        note
+      });
+      state.dealerIndex = (state.dealerIndex + 1) % 4;
+      persist();
+      renderAll();
+      el.roundNote.value = "";
+      el.statusText.textContent = `已新增第 ${state.rounds.length} 局。`;
+    }
+
+    function resetRounds() {
+      state.rounds = [];
+      state.dealerIndex = 0;
+      persist();
+      renderAll();
+      el.statusText.textContent = "已重新一輪，紀錄已清空。";
+    }
+
+    function clearAll() {
+      localStorage.removeItem(STORAGE_KEY);
+      state.config = { baseAmount: 10, taiAmount: 10, players: ["東", "南", "西", "北"] };
+      state.rounds = [];
+      state.dealerIndex = 0;
+      renderAll();
+      el.statusText.textContent = "已清空所有資料。";
+    }
+
+    el.saveConfigBtn.addEventListener("click", saveConfig);
+    el.addRoundBtn.addEventListener("click", addRound);
+    el.resetRoundBtn.addEventListener("click", resetRounds);
+    el.clearAllBtn.addEventListener("click", clearAll);
+
+    loadState();
+    renderAll();
+    el.statusText.textContent = "已載入本機儲存資料。";
+  </script>
+</body>
+</html>
