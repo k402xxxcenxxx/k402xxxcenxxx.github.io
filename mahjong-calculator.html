@@ -409,7 +409,7 @@
       }
 
       const multiplier = getPaymentMultiplier(winner, loser, dealerIndex);
-      return [{ from: loser, to: winner, amount: baseRoundAmount * multiplier, taiCount, dealerBonusTai: 0, multiplier }];
+      return [{ from: loser, to: winner, amount: baseRoundAmount, taiCount, dealerBonusTai: 0, multiplier }];
     }
 
     function getTotals() {
