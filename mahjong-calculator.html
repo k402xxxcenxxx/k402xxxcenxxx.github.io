@@ -129,12 +129,49 @@
     }
 
     .transaction-list li { margin-bottom: 6px; }
+
+    .rule-toggle-wrap {
+      margin: 8px 0 14px;
+    }
+
+    .btn-small {
+      padding: 4px 10px;
+      font-size: 0.82rem;
+      border-radius: 999px;
+      color: #1d4ed8;
+      border-color: #bfdbfe;
+      background: #eff6ff;
+    }
+
+    .rules-box {
+      display: none;
+      margin-top: 8px;
+      padding: 10px 12px;
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: 10px;
+      font-size: 0.86rem;
+      color: #475569;
+    }
+
+    .rules-box.show {
+      display: block;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>麻將計算器</h1>
     <p>設定一台金額、底分金額與玩家名稱，快速記錄每一局並自動輪調莊家，最後可一鍵結算誰該給誰多少錢。</p>
+    <div class="rule-toggle-wrap">
+      <button id="toggleRulesBtn" class="btn-small" type="button">顯示簡易規則</button>
+      <div id="rulesBox" class="rules-box">
+        <strong>自摸（依明星三缺一簡化）</strong><br>
+        1. 自摸時，若付款方是莊家，該筆多算 1 台（莊家台）。<br>
+        2. 自摸時，若胡牌者是莊家，三家皆各多算 1 台。<br>
+        3. 每筆金額 = 底分 +（原台數 + 莊家台）× 一台金額。
+      </div>
+    </div>
 
     <div class="grid">
       <section class="card">
@@ -231,7 +268,9 @@
       dealerText: document.getElementById("dealerText"),
       roundsBody: document.getElementById("roundsBody"),
       totalsBody: document.getElementById("totalsBody"),
-      transactions: document.getElementById("transactions")
+      transactions: document.getElementById("transactions"),
+      toggleRulesBtn: document.getElementById("toggleRulesBtn"),
+      rulesBox: document.getElementById("rulesBox")
     };
 
     function loadState() {
@@ -278,6 +317,12 @@
       return state.config.baseAmount + state.config.taiAmount * taiCount;
     }
 
+    function getDealerBonusTai({ winType, winner, payer, dealerIndex }) {
+      if (winType !== "selfDraw") return 0;
+      if (winner === dealerIndex || payer === dealerIndex) return 1;
+      return 0;
+    }
+
     function getPaymentMultiplier(winner, payer, dealerIndex) {
       if (winner === dealerIndex || payer === dealerIndex) {
         return 2;
@@ -292,17 +337,20 @@
           .map((_, playerIndex) => playerIndex)
           .filter((playerIndex) => playerIndex !== winner)
           .map((payer) => {
-            const multiplier = getPaymentMultiplier(winner, payer, dealerIndex);
+            const dealerBonusTai = getDealerBonusTai({ winType, winner, payer, dealerIndex });
+            const amount = calcRoundAmount(taiCount + dealerBonusTai);
             return {
               from: payer,
               to: winner,
-              amount: baseRoundAmount * multiplier
+              amount,
+              taiCount,
+              dealerBonusTai
             };
           });
       }
 
       const multiplier = getPaymentMultiplier(winner, loser, dealerIndex);
-      return [{ from: loser, to: winner, amount: baseRoundAmount * multiplier }];
+      return [{ from: loser, to: winner, amount: baseRoundAmount * multiplier, taiCount, dealerBonusTai: 0, multiplier }];
     }
 
     function getTotals() {
@@ -367,7 +415,10 @@
             ? round.transfers
             : [{ from: round.loser, to: round.winner, amount: round.amount || 0 }];
           const amountText = transfers
-            .map((tx) => `${state.config.players[tx.from]}→${state.config.players[tx.to]}：${tx.amount}`)
+            .map((tx) => {
+              const taiInfo = Number(tx.dealerBonusTai) > 0 ? `（${round.taiCount}+莊家${tx.dealerBonusTai}台）` : "";
+              return `${state.config.players[tx.from]}→${state.config.players[tx.to]}：${tx.amount}${taiInfo}`;
+            })
             .join("<br>");
           const noteText = [isSelfDraw ? "自摸" : "放槍", round.note]
             .filter(Boolean)
@@ -493,11 +544,18 @@
       el.statusText.textContent = "已清空所有資料。";
     }
 
+    function toggleRules() {
+      const shouldShow = !el.rulesBox.classList.contains("show");
+      el.rulesBox.classList.toggle("show", shouldShow);
+      el.toggleRulesBtn.textContent = shouldShow ? "隱藏簡易規則" : "顯示簡易規則";
+    }
+
     el.saveConfigBtn.addEventListener("click", saveConfig);
     el.addRoundBtn.addEventListener("click", addRound);
     el.winTypeSelect.addEventListener("change", toggleLoserInput);
     el.resetRoundBtn.addEventListener("click", resetRounds);
     el.clearAllBtn.addEventListener("click", clearAll);
+    el.toggleRulesBtn.addEventListener("click", toggleRules);
 
     loadState();
     renderAll();
