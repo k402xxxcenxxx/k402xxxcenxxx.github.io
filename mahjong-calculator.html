@@ -156,6 +156,7 @@
       <section class="card">
         <h2>新增一局</h2>
         <div class="row"><label for="winnerSelect">胡牌者</label><select id="winnerSelect"></select></div>
+        <div class="row"><label for="winTypeSelect">胡牌方式</label><select id="winTypeSelect"><option value="discard">放槍</option><option value="selfDraw">自摸</option></select></div>
         <div class="row"><label for="loserSelect">放槍者</label><select id="loserSelect"></select></div>
         <div class="row"><label for="taiCount">台數</label><input id="taiCount" type="number" min="0" step="1" value="1"></div>
         <div class="row"><label for="roundNote">備註</label><input id="roundNote" type="text" placeholder="例如：自摸、搶槓、連莊..."></div>
@@ -222,6 +223,7 @@
       clearAllBtn: document.getElementById("clearAllBtn"),
       statusText: document.getElementById("statusText"),
       winnerSelect: document.getElementById("winnerSelect"),
+      winTypeSelect: document.getElementById("winTypeSelect"),
       loserSelect: document.getElementById("loserSelect"),
       taiCount: document.getElementById("taiCount"),
       roundNote: document.getElementById("roundNote"),
@@ -276,11 +278,43 @@
       return state.config.baseAmount + state.config.taiAmount * taiCount;
     }
 
+    function getPaymentMultiplier(winner, payer, dealerIndex) {
+      if (winner === dealerIndex || payer === dealerIndex) {
+        return 2;
+      }
+      return 1;
+    }
+
+    function buildTransfers({ winner, loser, winType, taiCount, dealerIndex }) {
+      const baseRoundAmount = calcRoundAmount(taiCount);
+      if (winType === "selfDraw") {
+        return state.config.players
+          .map((_, playerIndex) => playerIndex)
+          .filter((playerIndex) => playerIndex !== winner)
+          .map((payer) => {
+            const multiplier = getPaymentMultiplier(winner, payer, dealerIndex);
+            return {
+              from: payer,
+              to: winner,
+              amount: baseRoundAmount * multiplier
+            };
+          });
+      }
+
+      const multiplier = getPaymentMultiplier(winner, loser, dealerIndex);
+      return [{ from: loser, to: winner, amount: baseRoundAmount * multiplier }];
+    }
+
     function getTotals() {
       const totals = state.config.players.map(() => 0);
       for (const round of state.rounds) {
-        totals[round.winner] += round.amount;
-        totals[round.loser] -= round.amount;
+        const transfers = Array.isArray(round.transfers)
+          ? round.transfers
+          : [{ from: round.loser, to: round.winner, amount: round.amount || 0 }];
+        for (const tx of transfers) {
+          totals[tx.to] += tx.amount;
+          totals[tx.from] -= tx.amount;
+        }
       }
       return totals;
     }
@@ -325,7 +359,19 @@
         .map((round, idx) => {
           const dealer = state.config.players[round.dealerIndex] || "-";
           const winner = state.config.players[round.winner] || "-";
-          const loser = state.config.players[round.loser] || "-";
+          const isSelfDraw = round.winType === "selfDraw";
+          const loser = isSelfDraw
+            ? "其餘三家"
+            : (state.config.players[round.loser] || "-");
+          const transfers = Array.isArray(round.transfers)
+            ? round.transfers
+            : [{ from: round.loser, to: round.winner, amount: round.amount || 0 }];
+          const amountText = transfers
+            .map((tx) => `${state.config.players[tx.from]}→${state.config.players[tx.to]}：${tx.amount}`)
+            .join("<br>");
+          const noteText = [isSelfDraw ? "自摸" : "放槍", round.note]
+            .filter(Boolean)
+            .join(" / ");
           return `
             <tr>
               <td>${idx + 1}</td>
@@ -333,12 +379,17 @@
               <td>${winner}</td>
               <td>${loser}</td>
               <td>${round.taiCount}</td>
-              <td>${round.amount}</td>
-              <td>${round.note || "-"}</td>
+              <td>${amountText || "-"}</td>
+              <td>${noteText || "-"}</td>
             </tr>
           `;
         })
         .join("");
+    }
+
+    function toggleLoserInput() {
+      const isSelfDraw = el.winTypeSelect.value === "selfDraw";
+      el.loserSelect.disabled = isSelfDraw;
     }
 
     function renderTotalsAndSettlement() {
@@ -387,25 +438,38 @@
 
     function addRound() {
       const winner = Number(el.winnerSelect.value);
+      const winType = el.winTypeSelect.value;
       const loser = Number(el.loserSelect.value);
       const taiCount = Math.max(0, Number(el.taiCount.value) || 0);
       const note = el.roundNote.value.trim();
 
-      if (winner === loser) {
+      if (winType === "discard" && winner === loser) {
         el.statusText.textContent = "胡牌者與放槍者不能同一位。";
         return;
       }
 
-      const amount = calcRoundAmount(taiCount);
+      const transfers = buildTransfers({
+        winner,
+        loser,
+        winType,
+        taiCount,
+        dealerIndex: state.dealerIndex
+      });
+
       state.rounds.push({
         dealerIndex: state.dealerIndex,
         winner,
         loser,
+        winType,
         taiCount,
-        amount,
+        transfers,
         note
       });
-      state.dealerIndex = (state.dealerIndex + 1) % 4;
+
+      if (winner !== state.dealerIndex) {
+        state.dealerIndex = (state.dealerIndex + 1) % 4;
+      }
+
       persist();
       renderAll();
       el.roundNote.value = "";
@@ -431,11 +495,13 @@
 
     el.saveConfigBtn.addEventListener("click", saveConfig);
     el.addRoundBtn.addEventListener("click", addRound);
+    el.winTypeSelect.addEventListener("change", toggleLoserInput);
     el.resetRoundBtn.addEventListener("click", resetRounds);
     el.clearAllBtn.addEventListener("click", clearAll);
 
     loadState();
     renderAll();
+    toggleLoserInput();
     el.statusText.textContent = "已載入本機儲存資料。";
   </script>
 </body>
